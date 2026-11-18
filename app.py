@@ -4,6 +4,17 @@ import matplotlib.image as mpimg
 from scipy.ndimage import gaussian_filter
 from scipy.io import wavfile
 
+
+def convoluer_1d(signal, noyau):
+    # On décale le signal et on le multiplie par chaque coefficient du noyau. On perd les valeurs aux extrémités.
+    n = len(signal)
+    k = len(noyau)
+    sortie = np.zeros(n - k + 1)
+    for i in range(k):
+        sortie += signal[i : n - k + 1 + i] * noyau[i]
+    return sortie
+
+
 st.set_page_config(page_title="Traitement du Signal", layout="wide")
 st.title("Application de Traitement du Signal")
 
@@ -74,14 +85,53 @@ with onglet_audio:
     fichier_audio = st.file_uploader("Chargez un fichier audio court (.wav)", type=['wav'])
 
     if fichier_audio is not None:
-        # wavfile.read renvoie la fréquence d'échantillonnage (en Hz) et le tableau des valeurs
+        liste_filtres_audio = ["Aucun", "Ajout de bruit",
+                               "Filtre son grave", "Filtre son aigu"]
+        filtre_audio = st.selectbox("Choisissez un filtre audio :", liste_filtres_audio)
+
+        intensite_audio = 2000
+        if filtre_audio == "Ajout de bruit":
+            intensite_audio = st.slider("Intensité du souffle (bruit)", min_value=0, max_value=10000, value=2000)
+
+        st.write("---")
+
         frequence, signal = wavfile.read(fichier_audio)
 
         # Si le fichier est stéréo (2 colonnes), on garde une seule piste
         if signal.ndim > 1:
             signal = signal[:, 0]
 
-        st.audio(fichier_audio, format="audio/wav")
-        st.write(f"Fréquence : {frequence} Hz | Nombre d'échantillons : {len(signal)}")
+        col3, col4 = st.columns(2)
+
+        with col3:
+            st.subheader("Audio Original")
+            st.audio(fichier_audio, format="audio/wav")
+            st.write(f"Fréquence : {frequence} Hz | Nombre d'échantillons : {len(signal)}")
+
+        with col4:
+            st.subheader("Audio Filtré")
+
+            signal_courant = signal.astype(float)
+
+            if filtre_audio == "Ajout de bruit":
+                bruit_audio = np.random.normal(loc=0, scale=intensite_audio, size=signal_courant.shape)
+                signal_courant = signal_courant + bruit_audio
+
+            elif filtre_audio == "Filtre son grave":
+                # Moyenne glissante sur 21 échantillons. Les variations aigus sont lissées, il reste les graves.
+                noyau = [1/21] * 21
+                signal_courant = convoluer_1d(signal_courant, noyau)
+
+            elif filtre_audio == "Filtre son aigu":
+                # Noyau [-1, 2, -1] : la somme des poids vaut 0, donc les parties graves s'annulent et seules les variations aigus restent.
+                noyau = np.array([-1, 2, -1])
+                signal_courant = convoluer_1d(signal_courant, noyau)
+
+            # On plafonne aux limites du 16 bits puis on reconvertit en entiers
+            signal_final = np.clip(signal_courant, -32768, 32767).astype(np.int16)
+
+            # Pour l'écoute, on enregistre un fichier .wav temporaire
+            wavfile.write("audio_filtre.wav", frequence, signal_final)
+            st.audio("audio_filtre.wav", format="audio/wav")
     else:
-        st.info("Veuillez charger un fichier .wav pour commencer.")
+        st.info("Veuillez charger un fichier .wav pour commencer.") 
