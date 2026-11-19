@@ -6,7 +6,7 @@ from scipy.io import wavfile
 
 
 def convoluer_1d(signal, noyau):
-    # On décale le signal et on le multiplie par chaque coefficient du noyau. On perd les valeurs aux extrémités.
+    # On décale le signal et on le multiplie par chaque coefficient du noyau.
     n = len(signal)
     k = len(noyau)
     sortie = np.zeros(n - k + 1)
@@ -85,12 +85,12 @@ with onglet_audio:
     fichier_audio = st.file_uploader("Chargez un fichier audio court (.wav)", type=['wav'])
 
     if fichier_audio is not None:
-        liste_filtres_audio = ["Aucun", "Ajout de bruit",
-                               "Filtre son grave", "Filtre son aigu"]
-        filtre_audio = st.selectbox("Choisissez un filtre audio :", liste_filtres_audio)
+        liste_filtres_audio = ["Ajout de bruit", "Filtre son grave", "Filtre son aigu"]
+        # Sélection multiple : les filtres sont appliqués dans l'ordre où on les coche
+        filtres_audio = st.multiselect("Choisissez les filtres audio (l'ordre compte !) :", liste_filtres_audio)
 
         intensite_audio = 2000
-        if filtre_audio == "Ajout de bruit":
+        if "Ajout de bruit" in filtres_audio:
             intensite_audio = st.slider("Intensité du souffle (bruit)", min_value=0, max_value=10000, value=2000)
 
         st.write("---")
@@ -113,25 +113,36 @@ with onglet_audio:
 
             signal_courant = signal.astype(float)
 
-            if filtre_audio == "Ajout de bruit":
-                bruit_audio = np.random.normal(loc=0, scale=intensite_audio, size=signal_courant.shape)
-                signal_courant = signal_courant + bruit_audio
+            # Chaque filtre travaille sur le résultat du précédent
+            for filtre_audio in filtres_audio:
+                if filtre_audio == "Ajout de bruit":
+                    bruit_audio = np.random.normal(loc=0, scale=intensite_audio, size=signal_courant.shape)
+                    signal_courant = signal_courant + bruit_audio
 
-            elif filtre_audio == "Filtre son grave":
-                # Moyenne glissante sur 21 échantillons. Les variations aigus sont lissées, il reste les graves.
-                noyau = [1/21] * 21
-                signal_courant = convoluer_1d(signal_courant, noyau)
+                elif filtre_audio == "Filtre son grave":
+                    # Moyenne glissante sur 21 échantillons. Les variations aigus sont lissées, il reste les graves.
+                    noyau = [1/21] * 21
+                    signal_courant = convoluer_1d(signal_courant, noyau)
 
-            elif filtre_audio == "Filtre son aigu":
-                # Noyau [-1, 2, -1] : la somme des poids vaut 0, donc les parties graves s'annulent et seules les variations aigus restent.
-                noyau = np.array([-1, 2, -1])
-                signal_courant = convoluer_1d(signal_courant, noyau)
+                elif filtre_audio == "Filtre son aigu":
+                    # Noyau [-1, 2, -1] : les parties graves s'annulent et seules les variations aigus restent.
+                    noyau = np.array([-1, 2, -1])
+                    signal_courant = convoluer_1d(signal_courant, noyau)
 
-            # On plafonne aux limites du 16 bits puis on reconvertit en entiers
+            # On plafonne entre -32768 et 32767 puis on convertit en entiers
             signal_final = np.clip(signal_courant, -32768, 32767).astype(np.int16)
 
             # Pour l'écoute, on enregistre un fichier .wav temporaire
             wavfile.write("audio_filtre.wav", frequence, signal_final)
             st.audio("audio_filtre.wav", format="audio/wav")
+
+            # Téléchargement de l'audio filtré
+            with open("audio_filtre.wav", "rb") as fichier_wav:
+                st.download_button(
+                    label="📥 Télécharger l'audio filtré",
+                    data=fichier_wav,
+                    file_name="audio_filtre.wav",
+                    mime="audio/wav",
+                )
     else:
-        st.info("Veuillez charger un fichier .wav pour commencer.") 
+        st.info("Veuillez charger un fichier .wav pour commencer.")
